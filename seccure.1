@@ -1,0 +1,91 @@
+.TH seccure 1 User Manuals
+.SH NAME
+seccure \- SECCURE Elliptic Curve Crypto Utility for Reliable Encryption
+.SH SYNOPSIS
+\fBseccure-key [-c \fIcurve\fB] [-F \fIpwfile\fB] [-v] [-q]
+
+seccure-encrypt [-m \fImaclen\fB] [-c \fIcurve\fB] [-i \fIinfile\fB] [-o \fIoutfile\fB] [-v] [-q] \fIkey\fB
+
+seccure-decrypt [-m \fImaclen\fB] [-c \fIcurve\fB] [-i \fIinfile\fB] [-o \fIoutfile\fB] [-F \fIpwfile\fB] [-v] [-q] 
+
+seccure-sign [-f] [-b] [-c \fIcurve\fB] [-s \fIsigfile\fB] [-i \fIinfile\fB] [-o \fIoutfile\fB] [-F \fIpwfile\fB] [-v] [-q] 
+
+seccure-verify [-f] [-b] [-c \fIcurve\fB] [-s \fIsigfile\fB] [-i \fIinfile\fB] [-o \fIoutfile\fB] [-v] [-q] \fIkey\fB [\fIsig\fB] 
+\f1
+.SH DESCRIPTION
+The \fBseccure\f1 toolset implements a selection of asymmetric algorithms based on elliptic curve cryptography (ECC). In particular it offers public key encryption / decryption and signature generation / verification. 
+
+ECC schemes offer a much better key size to security ratio than classical systems (RSA, DSA). Keys are short enough to make direct specification of keys on the command line possible (sometimes this is more convenient than the management of PGP-like key rings). \fBseccure\f1 builds on this feature and therefore is the tool of choice whenever lightweight asymmetric cryptography -- independent of key servers, revocation certificates, the Web of Trust or even configuration files -- is required. 
+.SH COMMANDS
+\fBseccure-key\f1: Prompt for a passphrase and calculate the corresponding public key.
+
+\fBseccure-encrypt\f1: Encrypt a message with public key \fIkey\f1.
+
+\fBseccure-decrypt\f1: Prompt for a passphrase and decrypt a \fBseccure-encrypt\f1ed message.
+
+\fBseccure-sign\f1: Prompt for a passphrase and digitally sign a message.
+
+\fBseccure-verify\f1: Verify signature \fIsig\f1 with public key \fIkey\f1.
+.SH OPTIONS
+.TP
+\fB-c \fIcurve\fB\f1
+Use elliptic curve \fIcurve\f1. Available are: \fIsecp112r1\f1, \fIsecp128r1\f1, \fIsecp160r1\f1, \fIsecp192r1/nistp192\f1, \fIsecp224r1/nistp224\f1, \fIsecp256r1/nistp256\f1, \fIsecp384r1/nistp384\f1 and \fIsecp521r1/nistp521\f1. The curve name may be abbreviated by any non-ambiguous substring (for instance it is suggested to specify \fIp224\f1 for the \fIsecp224r1/nistp224\f1 curve). The default curve is \fIp160\f1, which provides reasonable security for everyday use. (See also \fBHOW TO CHOOSE THE CURVE\f1.)
+.TP
+\fB-F \fIpwfile\fB\f1
+Don't prompt for a passphrase; instead, take the first text line of \fIpwfile\f1.
+.TP
+\fB-m \fImaclen\fB\f1
+Set the MAC length to \fImaclen\f1 bits. Only multiples of 8 in the range from 0 to 256 are allowed. The default MAC length is 80 bits, which provides a reasonable level of integrity protection for everyday use.
+.TP
+\fB-i \fIinfile\fB\f1
+Read from \fIinfile\f1 instead of STDIN. 
+.TP
+\fB-o \fIoutfile\fB\f1
+Write to \fIoutfile\f1 instead of STDOUT. 
+.TP
+\fB-s \fIsigfile\fB\f1
+For \fBseccure-sign\f1: Write signature to \fIsigfile\f1 instead of STDERR. 
+
+For \fBseccure-verify\f1: Read signature from \fIsigfile\f1 instead of using \fIsig\f1. 
+.TP
+\fB-f\f1
+Filter mode: Copy all data read from STDIN verbatim to STDOUT.
+.TP
+\fB-b\f1
+Binary mode: Read/write signatures as binary strings. This leads to very compact signatures.
+.TP
+\fB-v\f1
+Verbose mode: Print some extra information.
+.TP
+\fB-q\f1
+Quiet mode: Disable all unnecessary output.
+.SH EXAMPLE
+Given the passphrase 'seccure is secure', run
+
+\fBseccure-key\f1
+
+to determine the corresponding public key (which is '2@DupCaCKykHBe-QHpAP%d%B[' on curve \fIp160\f1).
+
+To encrypt the file 'document.msg' with that key run
+
+\fBseccure-encrypt -i document.msg -o document.enc '2@DupCaCKykHBe-QHpAP%d%B['\f1
+
+The message can be recovered with 
+
+\fBseccure-decrypt -i document.enc\f1
+
+To sign the file run
+
+\fBseccure-sign -i document.msg -s document.sig\f1
+
+and enter the passphrase. The signature is stored in 'document.sig' and can be verified with 
+
+\fBseccure-verify -i document.msg -s document.sig '2@DupCaCKykHBe-QHpAP%d%B['\f1
+.SH HOW TO CHOOSE THE CURVE
+The number in the names of the curves measures their security level. Rule of thumb: the workload to 'break' a k-bit curve is 2^(k/2) approximately (example: it takes about 2^112 steps to break \fIsecp224r1\f1). If the 80 bit security of the default curve doesn't seem sufficient, choosing a stronger curve (\fIp192\f1 and upwards) may, of course, be considered. But the suggestion remains: \fIp160\f1 offers reasonable security for everyday use. \fBWarning:\f1 the curves \fIp112\f1 and \fIp128\f1 do not satisfy demands for long-time security. 
+.SH ALGORITHMS
+\fBseccure\f1 uses derivated versions of the ECIES (Elliptic Curve Integrated Encryption Scheme) and the ECDSA (Elliptic Curve Digital Signature Standard) as encryption and signature scheme, respectively. For the symmetric parts (bulk encryption, hashing, key derivation, HMAC calculation) \fBseccure\f1 builds on AES256 (in CTR mode), SHA256 and SHA512. 
+.SH KNOWN LIMITATIONS
+\fBseccure\f1 doesn't support "Vollbit Verschluesselung" yet! ;-) 
+.SH AUTHOR
+This software (v0.1) was written by B. Poettering (seccure AT point-at-infinity.org) in 2006. Find the latest version of \fBseccure\f1 on the project's homepage: \fBhttp://point-at-infinity.org/seccure/\f1. 

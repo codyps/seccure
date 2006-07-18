@@ -1,0 +1,20 @@
+ 
+  SECCURE Elliptic Curve Crypto Utility for Reliable Encryption
+
+              http://point-at-infinity.org/seccure/
+
+
+The SECCURE toolset implements a selection of asymmetric algorithms
+based on elliptic curve cryptography (ECC). See the manpage or the
+project's homepage for further details. SECCURE is released under the
+GNU General Public License (GPL).
+
+The code links against the GNU gcrypt library "libgcrypt" (which is
+part of the GnuPG project). The code compiles successfully with
+gcc-4.0 and libgcrypt 1.2.1. Use the included Makefile to build the
+binary. Compile with -D NOMEMLOCK if your machine doesn't support
+memory locking.
+
+Report bugs to: seccure AT point-at-infinity.org
+
+Copyright 2006 B. Poettering

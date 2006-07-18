@@ -1,0 +1,11 @@
+- make use of libgcrypt's capabilities to allocate and manage secure
+   memory. Memlocking everything -- this is what we are doing now --
+   is a bit overkill, perhaps.
+
+- implement a key establishment scheme (DH at least, perhaps also an
+  authenticated scheme). This needs a certain kind of user interaction.
+
+- implement a signcryption scheme. Is there a (non-patented) standard
+   for this?
+  
+- speed up the point multiplication routines using NAF or wNAF techniques.
