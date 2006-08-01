@@ -29,7 +29,7 @@
  *
  * This code links against the GNU gcrypt library "libgcrypt" (which is
  * part of the GnuPG project). The code compiles successfully with 
- * libgcrypt 1.2.1. Use the included Makefile to build the binary.
+ * libgcrypt 1.2.2. Use the included Makefile to build the binary.
  * 
  * Compile with -D NOMEMLOCK if your machine doesn't support memory 
  * locking.
@@ -62,5 +62,9 @@ struct affine_point ECIES_encryption(char *key, const struct affine_point *Q,
 				     const struct curve_params *cp);
 int ECIES_decryption(char *key, const struct affine_point *R, 
 		     const gcry_mpi_t d, const struct curve_params *cp);
+
+gcry_mpi_t DH_step1(struct affine_point *A, const struct curve_params *cp);
+int DH_step2(char *key, const struct affine_point *B, const gcry_mpi_t exp, 
+	     const struct curve_params *cp);
 
 #endif /* INC_PROTOCOL_H */

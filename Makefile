@@ -3,7 +3,7 @@ CFLAGS = -O2 # -D NOBEEP # -D NOMEMLOCK
 default: binaries # doc
 
 binaries: seccure-key seccure-encrypt seccure-decrypt seccure-sign \
-	seccure-verify
+	seccure-verify seccure-dh
 
 doc: seccure.1 seccure.1.html
 
@@ -13,11 +13,12 @@ install: default
 	ln -f /usr/bin/seccure-key /usr/bin/seccure-decrypt
 	ln -f /usr/bin/seccure-key /usr/bin/seccure-sign
 	ln -f /usr/bin/seccure-key /usr/bin/seccure-verify
+	ln -f /usr/bin/seccure-key /usr/bin/seccure-dh
 	cp -i seccure.1 /usr/share/man/man1
 
 clean:
 	rm -f *.o seccure-key seccure-encrypt seccure-decrypt seccure-sign \
-	seccure-verify # seccure.1 seccure.1.html
+	seccure-verify seccure-dh # seccure.1 seccure.1.html
 
 rebuild: clean default
 
@@ -38,6 +39,9 @@ seccure-sign: seccure-key
 
 seccure-verify: seccure-key
 	ln -f seccure-key seccure-verify
+
+seccure-dh: seccure-key
+	ln -f seccure-key seccure-dh
 
 seccure.o: seccure.c
 	$(CC) $(CFLAGS) -c seccure.c

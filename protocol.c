@@ -29,7 +29,7 @@
  *
  * This code links against the GNU gcrypt library "libgcrypt" (which is
  * part of the GnuPG project). The code compiles successfully with 
- * libgcrypt 1.2.1. Use the included Makefile to build the binary.
+ * libgcrypt 1.2.2. Use the included Makefile to build the binary.
  * 
  * Compile with -D NOMEMLOCK if your machine doesn't support memory 
  * locking.
@@ -257,5 +257,35 @@ int ECIES_decryption(char *key, const struct affine_point *R,
   }
   ECIES_KDF(key, Z.x, R, cp->elem_len_bin);
   point_release(&Z);
+  return 1;
+}
+
+/******************************************************************************/
+
+static void DH_KDF(char *key, const struct affine_point *P, int elemlen)
+{
+  char buf[2 * elemlen];
+  serialize_mpi(buf + 0 * elemlen, elemlen, DF_BIN, P->x);
+  serialize_mpi(buf + 1 * elemlen, elemlen, DF_BIN, P->y);
+  gcry_md_hash_buffer(GCRY_MD_SHA512, key, buf, 2 * elemlen);
+}
+
+gcry_mpi_t DH_step1(struct affine_point *A, const struct curve_params *cp)
+{
+  gcry_mpi_t a;
+  a = get_random_exponent(cp);
+  *A = pointmul(&cp->dp.base, a, &cp->dp);
+  return a;
+}
+
+int DH_step2(char *key, const struct affine_point *B, const gcry_mpi_t exp, 
+	     const struct curve_params *cp)
+{
+  struct affine_point P;
+  if (! full_key_validation(B, &cp->dp))
+    return 0;
+  P = pointmul(B, exp, &cp->dp);
+  DH_KDF(key, &P, cp->elem_len_bin);
+  point_release(&P);
   return 1;
 }

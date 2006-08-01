@@ -2,10 +2,8 @@
    memory. Memlocking everything -- this is what we are doing now --
    is a bit overkill, perhaps.
 
-- implement a key establishment scheme (DH at least, perhaps also an
-  authenticated scheme). This needs a certain kind of user interaction.
+- implement an authenticated key establishment scheme. STS, IKE, MQV?
 
-- implement a signcryption scheme. Is there a (non-patented) standard
-   for this?
+- implement a signcryption scheme. Which one?
   
 - speed up the point multiplication routines using NAF or wNAF techniques.

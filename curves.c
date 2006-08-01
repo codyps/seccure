@@ -29,7 +29,7 @@
  *
  * This code links against the GNU gcrypt library "libgcrypt" (which is
  * part of the GnuPG project). The code compiles successfully with 
- * libgcrypt 1.2.1. Use the included Makefile to build the binary.
+ * libgcrypt 1.2.2. Use the included Makefile to build the binary.
  * 
  * Compile with -D NOMEMLOCK if your machine doesn't support memory 
  * locking.
@@ -165,7 +165,15 @@ static struct curve_params* load_curve(const struct curve *c)
   gcry_mpi_sub_ui(h, h, 1);
   cp->sig_len_bin = get_serialization_len(h, DF_BIN);
   cp->sig_len_compact = get_serialization_len(h, DF_COMPACT);
-  
+
+  cp->dh_len_bin = (gcry_mpi_get_nbits(dp->order) / 2 + 7) / 8;
+  if (cp->dh_len_bin > 32)
+    cp->dh_len_bin = 32;
+  gcry_mpi_set_ui(h, 1);            /* gcry_mpi_set_bit doesn't work properly */
+  gcry_mpi_mul_2exp(h, h, 8 * cp->dh_len_bin);          /* in libgcrypt-1.2.2 */
+  gcry_mpi_sub_ui(h, h, 1);
+  cp->dh_len_compact = get_serialization_len(h, DF_COMPACT);
+
   cp->elem_len_bin = get_serialization_len(dp->m, DF_BIN);
 
 #if 0

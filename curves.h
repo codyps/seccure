@@ -29,7 +29,7 @@
  *
  * This code links against the GNU gcrypt library "libgcrypt" (which is
  * part of the GnuPG project). The code compiles successfully with 
- * libgcrypt 1.2.1. Use the included Makefile to build the binary.
+ * libgcrypt 1.2.2. Use the included Makefile to build the binary.
  * 
  * Compile with -D NOMEMLOCK if your machine doesn't support memory 
  * locking.
@@ -48,6 +48,7 @@ struct curve_params {
   struct domain_params dp;
   int pk_len_bin, pk_len_compact;
   int sig_len_bin, sig_len_compact;
+  int dh_len_bin, dh_len_compact;
   int elem_len_bin;
 };
 

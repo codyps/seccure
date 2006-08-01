@@ -29,7 +29,7 @@
  *
  * This code links against the GNU gcrypt library "libgcrypt" (which is
  * part of the GnuPG project). The code compiles successfully with 
- * libgcrypt 1.2.1. Use the included Makefile to build the binary.
+ * libgcrypt 1.2.2. Use the included Makefile to build the binary.
  * 
  * Compile with -D NOMEMLOCK if your machine doesn't support memory 
  * locking.
@@ -53,7 +53,7 @@
 #include "protocol.h"
 #include "serialize.h"
 
-#define VERSION "0.1"
+#define VERSION "0.2"
 
 #define COPYBUF_SIZE (1 << 20)
 
@@ -751,6 +751,94 @@ int app_verify(const char *pubkey, const char *sig)
   return ! res;
 }
 
+void app_dh(void)
+{
+  struct curve_params *cp;
+
+  if (! opt_curve) {
+    opt_curve = DEFAULT_CURVE;
+    fprintf(stderr, "Assuming curve " DEFAULT_CURVE ".\n");
+  }
+
+  if ((cp = curve_by_name(opt_curve))) {
+    char keyA[cp->pk_len_compact + 1];
+    char keyB[cp->pk_len_compact + 2];
+    char dbuf[cp->dh_len_compact + 1];
+    struct affine_point A, B;
+    char keybuf[64];
+    gcry_mpi_t exp;
+    gcry_mpi_t h;
+
+    if (opt_verbose) {
+      print_quiet("VERSION: ", 0);
+      fprintf(stderr, VERSION "\n"); 
+      print_quiet("CURVE: ", 0); 
+      fprintf(stderr, "%s\n", cp->name); 
+    }
+
+    exp = DH_step1(&A, cp);
+    compress_to_string(keyA, DF_COMPACT, &A, cp);
+    point_release(&A);
+    keyA[cp->pk_len_compact] = 0;
+    print_quiet("Pass the following key to your peer: ", 0);
+    fprintf(stderr, "%s\n", keyA);
+
+    print_quiet("Enter your peer's key: ", 0);
+    keyB[0] = 0;
+    if (! fgets(keyB, cp->pk_len_compact + 2, stdin) && ferror(stdin))
+      fatal_errno("Cannot read text line", errno);
+    keyB[strcspn(keyB, "\r\n")] = '\0';
+    if (strlen(keyB) != cp->pk_len_compact)
+      fatal("Invalid key (wrong length)");
+
+    if (decompress_from_string(&B, keyB, DF_COMPACT, cp)) {
+      if (DH_step2(keybuf, &B, exp, cp)) {
+
+	assert(cp->dh_len_bin <= 32);
+
+	if (opt_verbose) {
+	  int i;
+	  print_quiet("K_ESTABLISHED: ", 0); 
+	  for(i = 0; i < cp->dh_len_bin; i++)
+	    fprintf(stderr, "%02x", (unsigned char)keybuf[i]);
+	  fprintf(stderr, "\n");
+	  print_quiet("K_VERIFICATION: ", 0); 
+	  for(i = 0; i < cp->dh_len_bin; i++)
+	    fprintf(stderr, "%02x", (unsigned char)keybuf[32 + i]);
+	  fprintf(stderr, "\n");
+	}
+
+	dbuf[cp->dh_len_compact] = 0;
+
+	deserialize_mpi(&h, DF_BIN, keybuf, cp->dh_len_bin);
+	serialize_mpi(dbuf, cp->dh_len_compact, DF_COMPACT, h);
+	gcry_mpi_release(h);
+
+	if (! opt_quiet)
+	  printf("Established key: ");
+	printf("%s\n", dbuf);
+
+	deserialize_mpi(&h, DF_BIN, keybuf + 32, cp->dh_len_bin);
+	serialize_mpi(dbuf, cp->dh_len_compact, DF_COMPACT, h);
+	gcry_mpi_release(h);
+
+	if (! opt_quiet)
+	  printf("Verification key: ");
+	printf("%s\n", dbuf);
+      }
+      else
+	fatal("Invalid key (point of low order)");
+      point_release(&B);
+    }
+    else
+      fatal("Invalid key");
+    gcry_mpi_release(exp);
+    curve_release(cp);
+  }
+  else
+    fatal("Invalid curve name");
+}
+
 /******************************************************************************/
 
 int main(int argc, char **argv)
@@ -852,6 +940,14 @@ int main(int argc, char **argv)
 	   "               key [signature]");
     else
       res = app_verify(argv[optind], argv[optind + 1]);
+  }
+  else if (strstr(progname, "dh")) {
+    if (opt_help || optind != argc)
+      puts("Perform an interactive Diffie-Hellman key exchange (seccure version " VERSION ").\n"
+	   "\n"
+	   "seccure-dh [-c curve]");
+    else
+      app_dh();
   }
   else 
     fatal("Unknown command");
