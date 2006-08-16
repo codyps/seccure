@@ -45,6 +45,7 @@
 #include "curves.h"
 #include "serialize.h"
 #include "protocol.h"
+#include "aes256ctr.h"
 
 /******************************************************************************/
 
@@ -52,27 +53,14 @@ gcry_mpi_t hash_to_exponent(const char *hash, const struct curve_params *cp)
 {
   int bits = gcry_mpi_get_nbits(cp->dp.order);
   int buflen = (bits + 7) / 8;
-  gcry_cipher_hd_t ch;
-  gcry_error_t err;
+  struct aes256ctr *ac;
   gcry_mpi_t a, b;
   char buf[buflen];
 
-  err = gcry_cipher_open(&ch, GCRY_CIPHER_AES256, GCRY_CIPHER_MODE_CTR, 0);
-  assert(! gcry_err_code(err));
-
-  err = gcry_cipher_setkey(ch, hash, 32);
-  assert(! gcry_err_code(err));
-  
-  err = gcry_cipher_setctr(ch, NULL, 0);
-  assert(! gcry_err_code(err));
-  
   memset(buf, 0, buflen);
-
-  err = gcry_cipher_encrypt(ch, buf, buflen, NULL, 0);
-  assert(! gcry_err_code(err));
-
-  gcry_cipher_close(ch);
-
+  assert((ac = aes256ctr_init(hash)));
+  aes256ctr_enc(ac, buf, buflen);
+  aes256ctr_done(ac);
   gcry_mpi_scan(&a, GCRYMPI_FMT_USG, buf, buflen, NULL);
   memset(buf, 0, buflen);
 
