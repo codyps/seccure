@@ -12,7 +12,7 @@ of these and in particular no part of seccure is covered by patents.
 - AES256, SHA256, SHA512, CTR Mode, HMAC Mode
 - Point compression on elliptic curves over prime fields
 - Point multiplication using Double-And-Add-Algorithm
-  (may be replaced by a NAF-Algorithm in the feature)
+  (may be replaced by a NAF-Algorithm in the future)
 
 Note: Diffie-Hellman key agreement actually has been patented in 1977. 
 The patent expired regularly in 1997. 

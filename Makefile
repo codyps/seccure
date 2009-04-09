@@ -1,4 +1,4 @@
-CFLAGS = -O2 # -D NOBEEP # -D NOMEMLOCK
+CFLAGS = -O2 -Wall # -D NOBEEP
 
 default: binaries # doc
 
@@ -19,7 +19,7 @@ install: default
 	install -m0644 seccure.1 $(DESTDIR)/usr/share/man/man1
 
 clean:
-	rm -f *.o seccure-key seccure-encrypt seccure-decrypt seccure-sign \
+	rm -f *.o *~ seccure-key seccure-encrypt seccure-decrypt seccure-sign \
 	seccure-verify seccure-signcrypt seccure-veridec \
 	seccure-dh # seccure.1 seccure.1.html
 
@@ -30,6 +30,7 @@ rebuild: clean default
 seccure-key: seccure.o numtheory.o ecc.o serialize.o protocol.o curves.o aes256ctr.o
 	$(CC) $(CFLAGS) -o seccure-key -lgcrypt seccure.o numtheory.o ecc.o \
 	curves.o serialize.o protocol.o aes256ctr.o
+	strip seccure-key
 
 seccure-encrypt: seccure-key
 	ln -f seccure-key seccure-encrypt
@@ -79,4 +80,3 @@ seccure.1: seccure.manpage.xml
 
 seccure.1.html: seccure.manpage.xml
 	xmlmantohtml seccure.manpage.xml > seccure.1.html
-

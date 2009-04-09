@@ -1,5 +1,5 @@
 /*
- *  seccure  -  Copyright 2006 B. Poettering
+ *  seccure  -  Copyright 2009 B. Poettering
  *
  *  This program is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU General Public License as
@@ -27,13 +27,10 @@
  * elliptic curve cryptography (ECC). See the manpage or the project's  
  * homepage for further details.
  *
- * This code links against the GNU gcrypt library "libgcrypt" (which is
- * part of the GnuPG project). The code compiles successfully with 
- * libgcrypt 1.2.2. Use the included Makefile to build the binary.
+ * This code links against the GNU gcrypt library "libgcrypt" (which
+ * is part of the GnuPG project). Use the included Makefile to build
+ * the binary.
  * 
- * Compile with -D NOMEMLOCK if your machine doesn't support memory 
- * locking.
- *
  * Report bugs to: seccure AT point-at-infinity.org
  *
  */

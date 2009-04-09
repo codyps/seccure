@@ -1,5 +1,5 @@
 /*
- *  seccure  -  Copyright 2006 B. Poettering
+ *  seccure  -  Copyright 2009 B. Poettering
  *
  *  This program is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU General Public License as
@@ -27,12 +27,9 @@
  * elliptic curve cryptography (ECC). See the manpage or the project's  
  * homepage for further details.
  *
- * This code links against the GNU gcrypt library "libgcrypt" (which is
- * part of the GnuPG project). The code compiles successfully with 
- * libgcrypt 1.2.2. Use the included Makefile to build the binary.
- * 
- * Compile with -D NOMEMLOCK if your machine doesn't support memory 
- * locking.
+ * This code links against the GNU gcrypt library "libgcrypt" (which
+ * is part of the GnuPG project). Use the included Makefile to build
+ * the binary.
  *
  * Report bugs to: seccure AT point-at-infinity.org
  *
@@ -55,7 +52,7 @@
 #include "aes256ctr.h"
 
 #define ANSI_CLEAR_LINE "\033[1K\r"
-#define VERSION "0.3"
+#define VERSION "0.4"
 
 #define COPYBUF_SIZE (1 << 20)
 #define DEFAULT_CURVE "p160"
@@ -78,7 +75,7 @@ char *opt_sigfile = NULL;
 
 int opt_fdin = STDIN_FILENO;
 int opt_fdout = STDOUT_FILENO;
-int opt_fdpw;
+int opt_fdpw = STDIN_FILENO;
 
 /******************************************************************************/
 
@@ -88,6 +85,26 @@ void beep_on_terminal(FILE *term)
   if (isatty(fileno(term)))
     fputc('\a', term);
 #endif
+}
+
+#if 0
+void warning(const char *msg)
+{
+  beep_on_terminal(stderr);
+  fprintf(stderr, "WARNING: %s.\n", msg);
+}
+
+void warning_errno(const char *msg, int err)
+{
+  beep_on_terminal(stderr);
+  fprintf(stderr, "WARNING: %s: %s.\n", msg, strerror(err));
+}
+#endif
+
+void warning_gcrypt(const char *msg, gcry_error_t err)
+{
+  beep_on_terminal(stderr);
+  fprintf(stderr, "WARNING: %s: %s.\n", msg, gcry_strerror(err));
 }
 
 void fatal(const char *msg)
@@ -186,7 +203,7 @@ void decryption_loop(int fdin, int fdout, struct aes256ctr *ac,
   memcpy(tail, buf, taillen);
 }
 
-void verisign_loop(int fdin, int fdout, gcry_md_hd_t *mh, 
+void verisign_loop(int fdin, int fdout, gcry_md_hd_t *mh,
 		   char *tail, int taillen, int copyflag)
 {
   char buf[COPYBUF_SIZE];
@@ -206,28 +223,27 @@ void verisign_loop(int fdin, int fdout, gcry_md_hd_t *mh,
 
 /******************************************************************************/
 
-void do_read_passphrase(const struct termios *tios, char *hash)
+void do_read_passphrase(char *hash, const struct termios *err_tios)
 {
   gcry_error_t err;
   gcry_md_hd_t mh;
   char *md, ch;
   ssize_t r;
 
-  err = gcry_md_open(&mh, GCRY_MD_SHA256, 0);
+  err = gcry_md_open(&mh, GCRY_MD_SHA256, GCRY_MD_FLAG_SECURE);
   if (gcry_err_code(err)) {
-    if (isatty(opt_fdpw))
-      tcsetattr(opt_fdpw, TCSANOW, tios);
+    if (err_tios)
+      tcsetattr(opt_fdpw, TCSANOW, err_tios);
     fatal_gcrypt("Cannot initialize SHA256", err);
   }
   
   while (((r = read(opt_fdpw, &ch, 1)) > 0) && (ch != '\n'))
     if (ch != '\r')
       gcry_md_putc(mh, ch);
-
   if (r < 0) {
     int err = errno;
-    if (isatty(opt_fdpw))
-      tcsetattr(opt_fdpw, TCSANOW, tios);
+    if (err_tios)
+      tcsetattr(opt_fdpw, TCSANOW, err_tios);
     fatal_errno("Cannot read text line", err);
   }
   
@@ -237,40 +253,49 @@ void do_read_passphrase(const struct termios *tios, char *hash)
   gcry_md_close(mh);
 }
 
-void read_passphrase(const char *name, char *hash)
+void read_passphrase(char *hash, const char *name)
 {
-  struct termios echo_orig, echo_off;
-
   if (isatty(opt_fdpw)) {
+    struct termios echo_orig, echo_off;
+
     tcgetattr(opt_fdpw, &echo_orig);
     echo_off = echo_orig;
     echo_off.c_lflag &= ~ECHO;
     tcsetattr(opt_fdpw, TCSANOW, &echo_off);
+
     if (! opt_quiet)
       fprintf(stderr, "Enter %s: ", name);
-  }
-  else 
-    if (opt_dblprompt)
-      print_quiet("Ignoring -d flag.\n", 0);
+    do_read_passphrase(hash, &echo_orig);
+    if (! opt_quiet)
+      fprintf(stderr, ANSI_CLEAR_LINE);
 
-  do_read_passphrase(&echo_orig, hash);
-
-  if (isatty(opt_fdpw)) {
     if (opt_dblprompt) {
-      char hash2[32];
+      char *hash2;
+      if (! (hash2 = gcry_malloc_secure(32))) {
+	tcsetattr(opt_fdpw, TCSANOW, &echo_orig);
+	fatal("Out of secure memory");
+      }
+
       if (! opt_quiet)
-	fprintf(stderr, ANSI_CLEAR_LINE "Reenter %s: ", name);
-      
-      do_read_passphrase(&echo_orig, hash2);
+	fprintf(stderr, "Reenter %s: ", name);
+      do_read_passphrase(hash2, &echo_orig);
+      if (! opt_quiet)
+	fprintf(stderr, ANSI_CLEAR_LINE);
 
       if (memcmp(hash, hash2, 32)) {
 	tcsetattr(opt_fdpw, TCSANOW, &echo_orig);
-	fatal("Passphrases do not match");
+	fatal("The two inputs differ");
       }
+
+      gcry_free(hash2);
     }
 
-    print_quiet(ANSI_CLEAR_LINE, 0);
     tcsetattr(opt_fdpw, TCSANOW, &echo_orig);
+  }
+  else {
+    if (opt_dblprompt)
+      print_quiet("Ignoring -d flag.\n", 0);
+    do_read_passphrase(hash, NULL);
   }
 }
 
@@ -286,7 +311,7 @@ void app_print_public_key(void)
 
   if ((cp = curve_by_name(opt_curve))) {
     char pubkey[cp->pk_len_compact + 1];
-    char privkey[32];
+    char *privkey;
     struct affine_point P;
     gcry_mpi_t d;
 
@@ -297,9 +322,11 @@ void app_print_public_key(void)
       fprintf(stderr, "%s\n", cp->name); 
     }
 
-    read_passphrase("private key", privkey);
+    if (! (privkey = gcry_malloc_secure(32)))
+      fatal("Out of secure memory");
+    read_passphrase(privkey, "private key");
     d = hash_to_exponent(privkey, cp);
-    memset(privkey, 0, sizeof(privkey));
+    gcry_free(privkey);
     P = pointmul(&cp->dp.base, d, &cp->dp);
     gcry_mpi_release(d);
 
@@ -348,9 +375,11 @@ void app_encrypt(const char *pubkey)
   if (decompress_from_string(&P, pubkey, DF_COMPACT, cp)) {
     char rbuf[cp->pk_len_bin];
     struct aes256ctr *ac;
-    char keybuf[64], *md;
+    char *keybuf, *md;
     gcry_md_hd_t mh;
 
+    if (! (keybuf = gcry_malloc_secure(64)))
+      fatal("Out of secure memory");
     R = ECIES_encryption(keybuf, &P, cp);
     compress_to_string(rbuf, DF_BIN, &R, cp);
     point_release(&P);
@@ -370,9 +399,9 @@ void app_encrypt(const char *pubkey)
 
     if (! (ac = aes256ctr_init(keybuf)))
       fatal("Cannot initialize AES256-CTR");
-    if (opt_maclen && ! hmacsha256_init(&mh, keybuf + 32))
+    if (opt_maclen && ! hmacsha256_init(&mh, keybuf + 32, HMAC_KEY_SIZE))
       fatal("Cannot initialize HMAC-SHA256");
-    memset(keybuf, 0, sizeof(keybuf));
+    gcry_free(keybuf);
 
     if (isatty(opt_fdin))
       print_quiet("Go ahead and type your message ...\n", 0);
@@ -420,7 +449,7 @@ int app_decrypt(void)
   }
 
   if ((cp = curve_by_name(opt_curve))) {
-    char keybuf[64], privkey[32];
+    char *keybuf, *privkey;
     char rbuf[cp->pk_len_bin];
     char mdbuf[opt_maclen], *md;
     struct aes256ctr *ac;
@@ -436,15 +465,19 @@ int app_decrypt(void)
       fprintf(stderr, "%d\n", 8 * opt_maclen);
     }
 
-    read_passphrase("private key", privkey);
+    if (! (privkey = gcry_malloc_secure(32)))
+      fatal("Out of secure memory");
+    read_passphrase(privkey, "private key");
     d = hash_to_exponent(privkey, cp);
-    memset(privkey, 0, sizeof(privkey));
+    gcry_free(privkey);
 
     if (isatty(opt_fdin))
       print_quiet("Go ahead and enter the ciphertext ...\n", 0);
 
     if (read_block(opt_fdin, rbuf, cp->pk_len_bin)) {
       if (decompress_from_string(&R, rbuf, DF_BIN, cp)) {
+	if (! (keybuf = gcry_malloc_secure(64)))
+	  fatal("Out of secure memory");
 	if (ECIES_decryption(keybuf, &R, d, cp)) {
 
 	  if (opt_verbose) {
@@ -461,16 +494,15 @@ int app_decrypt(void)
 
 	  if (! (ac = aes256ctr_init(keybuf)))
 	    fatal("Cannot initialize AES256-CTR");
-	  if (opt_maclen && ! hmacsha256_init(&mh, keybuf + 32))
+	  if (opt_maclen && ! hmacsha256_init(&mh, keybuf + 32, HMAC_KEY_SIZE))
 	    fatal("Cannot initialize HMAC-SHA256");
-	  memset(keybuf, 0, sizeof(keybuf));
+	  memset(keybuf, 0x00, 64);
 	
 	  decryption_loop(opt_fdin, opt_fdout, ac, opt_maclen ? &mh : NULL, 
 			  NULL, mdbuf, opt_maclen);
 
 	  aes256ctr_done(ac);
 
-	  res = 1;
 	  if (opt_maclen) {
 	    gcry_md_final(mh);
 	    md = (char*)gcry_md_read(mh, 0);
@@ -490,17 +522,19 @@ int app_decrypt(void)
 	    if ((res = ! memcmp(mdbuf, md, opt_maclen)))
 	      print_quiet("Integrity check successful, message unforged!\n", 0);
 	    else
-	      print_quiet("WARNING: Integrity check failed, message "
-			  "forged!\n", 1);
+	      print_quiet("Integrity check failed, message forged!\n", 1);
 
 	    gcry_md_close(mh);
 	  }
-	  else
+	  else {
+	    res = 1;
 	    print_quiet("Warning: No MAC available, message integrity cannot "
 			"be verified!\n", 0);
+	  }
 	}
 	else
 	  print_quiet("Abort: Inconsistent header.\n", 1);
+	gcry_free(keybuf);
 	point_release(&R);
       }
       else
@@ -520,7 +554,7 @@ int app_decrypt(void)
 void app_sign(void)
 {
   struct curve_params *cp;
-  char privkey[32], *md;
+  char *privkey, *md;
   gcry_md_hd_t mh;
   gcry_error_t err;
   gcry_mpi_t d, sig;
@@ -546,9 +580,11 @@ void app_sign(void)
       fprintf(stderr, "%s\n", cp->name); 
     }
 
-    read_passphrase("private key", privkey);
+    if (! (privkey = gcry_malloc_secure(32)))
+      fatal("Out of secure memory");
+    read_passphrase(privkey, "private key");
     d = hash_to_exponent(privkey, cp);
-    memset(privkey, 0, sizeof(privkey));
+    gcry_free(privkey);
 
     err = gcry_md_open(&mh, GCRY_MD_SHA512, 0);
     if (gcry_err_code(err))
@@ -572,6 +608,7 @@ void app_sign(void)
 
     sig = ECDSA_sign(md, d, cp);
     gcry_mpi_release(d);
+    gcry_md_close(mh);
 
     if (opt_sigfile) {
       if (! (sigfile = fopen(opt_sigfile, "w")))
@@ -607,7 +644,6 @@ void app_sign(void)
       fatal_errno("Cannot close signature file", errno);
     
     gcry_mpi_release(sig);
-    gcry_md_close(mh);
     curve_release(cp);
   }
   else
@@ -627,9 +663,9 @@ int app_verify(const char *pubkey, const char *sig)
   if (!! sig + !! opt_sigfile + !! opt_sigappend != 1)
     fatal("Exactly one signature has to be specified");
 
-  if (sig)
-    opt_sigbin = 0;
-
+  if (sig && opt_sigbin)
+    fatal("Binary signature is not accepted here");
+  
   if (opt_curve) {
     if (! (cp = curve_by_name(opt_curve)))
       fatal("Invalid curve name");
@@ -637,27 +673,27 @@ int app_verify(const char *pubkey, const char *sig)
   else
     if (! (cp = curve_by_pk_len_compact(strlen(pubkey))))
       fatal("Invalid verification key (wrong length)");
-
+  
   if (opt_verbose) {
     print_quiet("VERSION: ", 0);
     fprintf(stderr, VERSION "\n"); 
     print_quiet("CURVE: ", 0);
     fprintf(stderr, "%s\n", cp->name); 
   }
-
+  
   if (strlen(pubkey) != cp->pk_len_compact)
     fatal("Invalid verification key (wrong length)");
-
+  
   if (decompress_from_string(&Q, pubkey, DF_COMPACT, cp)) {
     union {
       char compact[cp->sig_len_compact + 2];
       char bin[cp->sig_len_bin];
     } sigbuf;
-
+    
     err = gcry_md_open(&mh, GCRY_MD_SHA512, 0);
     if (gcry_err_code(err))
       fatal_gcrypt("Cannot initialize SHA512", err);
-  
+    
     if (opt_sigfile) {
       FILE *sigfile;
       if (! (sigfile = fopen(opt_sigfile, "r")))
@@ -669,6 +705,7 @@ int app_verify(const char *pubkey, const char *sig)
 	    fatal_errno("Cannot read signature", errno);
 	  else {
 	    print_quiet("Invalid signature (wrong length)!\n", 1);
+	    fclose(sigfile);
 	    goto error;
 	  }
 	}
@@ -687,7 +724,7 @@ int app_verify(const char *pubkey, const char *sig)
 
     if (isatty(opt_fdin))
       print_quiet("Go ahead and type your message ...\n", 0);
-      
+
     if (opt_sigappend) {
       if (opt_sigbin)
 	verisign_loop(opt_fdin, opt_fdout, &mh, sigbuf.bin, 
@@ -701,9 +738,18 @@ int app_verify(const char *pubkey, const char *sig)
     else
       verisign_loop(opt_fdin, opt_fdout, &mh, NULL, 0, opt_sigcopy);
 
-    if (opt_sigbin)
-      assert(deserialize_mpi(&s, DF_BIN, sigbuf.bin, cp->sig_len_bin));
-    else {
+    gcry_md_final(mh);
+    md = (char*)gcry_md_read(mh, 0);
+
+    if (opt_verbose) {
+      int i;
+      print_quiet("SHA512: ", 0);
+      for(i = 0; i < 64; i++)
+	fprintf(stderr, "%02x", (unsigned char)md[i]);
+      fprintf(stderr, "\n");
+    }
+	
+    if (! opt_sigbin) {
       if (! sig)
 	sig = sigbuf.compact;
       if (strlen(sig) != cp->sig_len_compact) {
@@ -716,23 +762,14 @@ int app_verify(const char *pubkey, const char *sig)
 	  goto error; 
 	}
     }
+    else
+      assert(deserialize_mpi(&s, DF_BIN, sigbuf.bin, cp->sig_len_bin));
 
-    gcry_md_final(mh);
-    md = (char*)gcry_md_read(mh, 0);
-	
-    if (opt_verbose) {
-      int i;
-      print_quiet("SHA512: ", 0);
-      for(i = 0; i < 64; i++)
-	fprintf(stderr, "%02x", (unsigned char)md[i]);
-      fprintf(stderr, "\n");
-    }
-	
     if ((res = ECDSA_verify(md, &Q, s, cp)))
       print_quiet("Signature successfully verified!\n", 0);
     else
       print_quiet("Invalid signature, message forged!\n", 1);
-    
+
     gcry_mpi_release(s);
 
   error:
@@ -741,6 +778,7 @@ int app_verify(const char *pubkey, const char *sig)
   }
   else
     fatal("Invalid verification key");
+
   curve_release(cp);
   return ! res;
 }
@@ -778,18 +816,22 @@ void app_signcrypt(const char *pubkey)
     fatal("Invalid encryption key (wrong length)");
 
   if (decompress_from_string(&P, pubkey, DF_COMPACT, cp_enc)) {
-    char sigbuf[cp_sig->sig_len_bin];
     char rbuf[cp_enc->pk_len_bin];
-    char keybuf[64], privkey[32], *md;
+    char sigbuf[cp_sig->sig_len_bin];
+    char *privkey, *keybuf, *md;
     struct aes256ctr *ac;
     gcry_mpi_t d, sig;
     gcry_md_hd_t mh;
     gcry_error_t err;
 
-    read_passphrase("private signing key", privkey);
+    if (! (privkey = gcry_malloc_secure(32)))
+      fatal("Out of secure memory");
+    read_passphrase(privkey, "private signing key");
     d = hash_to_exponent(privkey, cp_sig);
-    memset(privkey, 0, sizeof(privkey));
+    gcry_free(privkey);
 
+    if (! (keybuf = gcry_malloc_secure(64)))
+      fatal("Out of secure memory");
     R = ECIES_encryption(keybuf, &P, cp_enc);
     compress_to_string(rbuf, DF_BIN, &R, cp_enc);
     point_release(&P);
@@ -805,9 +847,9 @@ void app_signcrypt(const char *pubkey)
 
     if (! (ac = aes256ctr_init(keybuf)))
       fatal("Cannot initialize AES256-CTR");
-    memset(keybuf, 0, sizeof(keybuf));
+    gcry_free(keybuf);
 
-    err = gcry_md_open(&mh, GCRY_MD_SHA512, 0);
+    err = gcry_md_open(&mh, GCRY_MD_SHA512, GCRY_MD_FLAG_SECURE);
     if (gcry_err_code(err))
       fatal_gcrypt("Cannot initialize SHA512", err);
 
@@ -815,7 +857,6 @@ void app_signcrypt(const char *pubkey)
       print_quiet("Go ahead and type your message ...\n", 0);
 
     write_block(opt_fdout, rbuf, cp_enc->pk_len_bin);
-    
     encryption_loop(opt_fdin, opt_fdout, ac, &mh, NULL);
 
     gcry_md_final(mh);
@@ -830,21 +871,21 @@ void app_signcrypt(const char *pubkey)
     }
 
     sig = ECDSA_sign(md, d, cp_sig);
+    gcry_mpi_release(d);
+    gcry_md_close(mh);
+
     serialize_mpi(sigbuf, cp_sig->sig_len_bin, DF_BIN, sig);
     aes256ctr_enc(ac, sigbuf, cp_sig->sig_len_bin);
     write_block(opt_fdout, sigbuf, cp_sig->sig_len_bin);
 
-    aes256ctr_done(ac);
-
-    gcry_mpi_release(d);
     gcry_mpi_release(sig);
-    gcry_md_close(mh);
+    aes256ctr_done(ac);
   }
   else
     fatal("Invalid encryption key");
 
-  curve_release(cp_sig);
   curve_release(cp_enc);
+  curve_release(cp_sig);
 }
 
 int app_veridec(const char *pubkey)
@@ -876,30 +917,35 @@ int app_veridec(const char *pubkey)
     print_quiet("ENCRYPTION CURVE: ", 0); 
     fprintf(stderr, "%s\n", cp_enc->name); 
   }
-
+  
   if (strlen(pubkey) != cp_sig->pk_len_compact)
     fatal("Invalid verification key (wrong length)");
 
   if (decompress_from_string(&Q, pubkey, DF_COMPACT, cp_sig)) {
-    char sigbuf[cp_sig->sig_len_bin];
     char rbuf[cp_enc->pk_len_bin];
-    char keybuf[64], privkey[32], *md;
+    char sigbuf[cp_sig->sig_len_bin];
+    char *privkey, *keybuf, *md;
     gcry_mpi_t d, sig;
     struct aes256ctr *ac;
     gcry_md_hd_t mh;
     gcry_error_t err;
-
-    read_passphrase("private decryption key", privkey);
+    
+    if (! (privkey = gcry_malloc_secure(32)))
+      fatal("Out of secure memory");
+    read_passphrase(privkey, "private decryption key");
     d = hash_to_exponent(privkey, cp_enc);
-    memset(privkey, 0, sizeof(privkey));
-
+    gcry_free(privkey);
+    
     if (isatty(opt_fdin))
       print_quiet("Go ahead and enter the ciphertext ...\n", 0);
-
+    
     if (read_block(opt_fdin, rbuf, cp_enc->pk_len_bin)) {
       if (decompress_from_string(&R, rbuf, DF_BIN, cp_enc)) {
-	if (ECIES_decryption(keybuf, &R, d, cp_enc)) {
 
+	if (! (keybuf = gcry_malloc_secure(64)))
+	  fatal("Out of secure memory");
+
+	if (ECIES_decryption(keybuf, &R, d, cp_enc)) {
 	  if (opt_verbose) {
 	    int i;
 	    print_quiet("K_ENC: ", 0); 
@@ -910,9 +956,9 @@ int app_veridec(const char *pubkey)
 
 	  if (! (ac = aes256ctr_init(keybuf)))
 	    fatal("Cannot initialize AES256-CTR");
-	  memset(keybuf, 0, sizeof(keybuf));
+	  memset(keybuf, 0xff, 64);
 
-	  err = gcry_md_open(&mh, GCRY_MD_SHA512, 0);
+	  err = gcry_md_open(&mh, GCRY_MD_SHA512, GCRY_MD_FLAG_SECURE);
 	  if (gcry_err_code(err))
 	    fatal_gcrypt("Cannot initialize SHA512", err);
 
@@ -938,12 +984,14 @@ int app_veridec(const char *pubkey)
 	  else
 	    print_quiet("WARNING: Invalid signature, message forged!\n", 1);
 
-	  aes256ctr_done(ac);
-	  gcry_md_close(mh);
 	  gcry_mpi_release(sig);
+	  gcry_md_close(mh);
+	  aes256ctr_done(ac);
 	}
 	else
 	  print_quiet("Abort: Inconsistent header.\n", 1);
+
+	gcry_free(keybuf);
 	point_release(&R);
       }
       else
@@ -975,11 +1023,9 @@ void app_dh(void)
   if ((cp = curve_by_name(opt_curve))) {
     char keyA[cp->pk_len_compact + 1];
     char keyB[cp->pk_len_compact + 2];
-    char kbuf[cp->dh_len_compact + 1];
-    char vbuf[cp->dh_len_compact + 1];
+    char *keybuf, *outbuf;
     struct affine_point A, B;
     gcry_mpi_t exp, h;
-    char keybuf[64];
 
     if (opt_verbose) {
       print_quiet("VERSION: ", 0);
@@ -992,21 +1038,24 @@ void app_dh(void)
     compress_to_string(keyA, DF_COMPACT, &A, cp);
     point_release(&A);
     keyA[cp->pk_len_compact] = 0;
-    print_quiet("Pass the following key to your peer: ", 0);
+    print_quiet("Pass this key to your peer: ", 0);
     fprintf(stderr, "%s\n", keyA);
 
     print_quiet("Enter your peer's key: ", 0);
     keyB[0] = 0;
     if (! fgets(keyB, cp->pk_len_compact + 2, stdin) && ferror(stdin))
       fatal_errno("Cannot read text line", errno);
-    keyB[strcspn(keyB, "\r\n")] = '\0';
+    keyB[strcspn(keyB, "\r\n")] = 0;
 
     if (strlen(keyB) != cp->pk_len_compact)
       fatal("Invalid key (wrong length)");
 
     if (decompress_from_string(&B, keyB, DF_COMPACT, cp)) {
-      if (DH_step2(keybuf, &B, exp, cp)) {
 
+      if (! (keybuf = gcry_malloc_secure(64)))
+	fatal("Out of secure memory");
+
+      if (DH_step2(keybuf, &B, exp, cp)) {
 	assert(cp->dh_len_bin <= 32);
 
 	if (opt_verbose) {
@@ -1021,29 +1070,38 @@ void app_dh(void)
 	  fprintf(stderr, "\n");
 	}
 
-	assert(deserialize_mpi(&h, DF_BIN, keybuf, cp->dh_len_bin));
-	serialize_mpi(kbuf, cp->dh_len_compact, DF_COMPACT, h);
-	kbuf[cp->dh_len_compact] = 0;
-	gcry_mpi_release(h);
+	if (! (outbuf = gcry_malloc_secure(cp->dh_len_compact + 1)))
+	  fatal("Out of secure memory");
 
-	assert(deserialize_mpi(&h, DF_BIN, keybuf + 32, cp->dh_len_bin));
-	serialize_mpi(vbuf, cp->dh_len_compact, DF_COMPACT, h);
-	vbuf[cp->dh_len_compact] = 0;
+	assert(deserialize_mpi(&h, DF_BIN, keybuf, cp->dh_len_bin));
+	serialize_mpi(outbuf, cp->dh_len_compact, DF_COMPACT, h);
+	outbuf[cp->dh_len_compact] = 0;
 	gcry_mpi_release(h);
 
 	if (! opt_quiet)
 	  printf("Established key: ");
-	printf("%s\n", kbuf);
+	printf("%s\n", outbuf);
+
+	assert(deserialize_mpi(&h, DF_BIN, keybuf + 32, cp->dh_len_bin));
+	serialize_mpi(outbuf, cp->dh_len_compact, DF_COMPACT, h);
+	outbuf[cp->dh_len_compact] = 0;
+	gcry_mpi_release(h);
+
 	if (! opt_quiet)
 	  printf("Verification key: ");
-	printf("%s\n", vbuf);
+	printf("%s\n", outbuf);
+
+	gcry_free(outbuf);
       }
       else
 	fatal("Invalid key");
+
+      gcry_free(keybuf);
       point_release(&B);
     }
     else
       fatal("Invalid key");
+
     gcry_mpi_release(exp);
     curve_release(cp);
   }
@@ -1059,22 +1117,23 @@ int main(int argc, char **argv)
   char *progname;
   int res = 0, i;
 
-#if ! NOMEMLOCK
-  if (mlockall(MCL_CURRENT | MCL_FUTURE) < 0)
-    fatal_errno("Cannot obtain memory lock", errno);
-#endif
+  assert(gcry_check_version("1.4.1"));
 
-  /* As we already have locked all memory we don't need gcrypt's mlocking */
-  err = gcry_control(GCRYCTL_DISABLE_SECMEM, 0);
+  err = gcry_control(GCRYCTL_INIT_SECMEM, 1);
   if (gcry_err_code(err))
-    fatal_gcrypt("Cannot disable gcrypt's secure memory", err);
+    warning_gcrypt("Cannot enable gcrypt's secure memory management", err);
+
+  err = gcry_control(GCRYCTL_USE_SECURE_RNDPOOL, 1);
+  if (gcry_err_code(err))
+    warning_gcrypt("Cannot enable gcrypt's secure "
+		   "random number generator", err);
 
   if (getuid() != geteuid())
     seteuid(getuid());
-
+  
   if ((progname = strrchr(argv[0], '/')) == NULL)
     progname = argv[0];
-
+  
   while((i = getopt(argc, argv, "fbadm:i:o:F:s:c:hvq")) != -1)
     switch(i) {
     case 'f': opt_sigcopy = 1; break;
@@ -1107,26 +1166,26 @@ int main(int argc, char **argv)
   if (opt_infile)
     if ((opt_fdin = open(opt_infile, O_RDONLY)) < 0)
       fatal_errno("Cannot open input file", errno);
+
   if (opt_outfile) {
-    int openmode = strstr(progname, "decrypt") ? 0600 : 0644;
-    if ((opt_fdout = 
-	 open(opt_outfile, O_WRONLY | O_CREAT | O_TRUNC, openmode)) < 0)
+    int decmode = strstr(progname, "decrypt") || strstr(progname, "veridec");
+    if ((opt_fdout = open(opt_outfile, O_WRONLY | O_CREAT | O_TRUNC, 
+			  decmode ? 0600 : 0644)) < 0)
       fatal_errno("Cannot open output file", errno);
   }
+
   if (opt_pwfile) {
     if ((opt_fdpw = open(opt_pwfile, O_RDONLY)) < 0)
       fatal_errno("Cannot open password file", errno);
   }
   else
-    if (opt_infile || isatty(STDIN_FILENO))
-      opt_fdpw = STDIN_FILENO;
-    else
+    if (! opt_infile && ! isatty(STDIN_FILENO))
       if ((opt_fdpw = open("/dev/tty", O_RDONLY)) < 0)
 	fatal_errno("Cannot open tty", errno);
-  
+
   if (strstr(progname, "key")) {
     if (opt_help || optind != argc)
-      puts("Generate public key from secret key (seccure version " VERSION ").\n"
+      puts("Generate public key from private key (seccure version " VERSION ").\n"
 	   "\n"
 	   "seccure-key [-c curve] [-F pwfile] [-d]");
     else
@@ -1134,7 +1193,7 @@ int main(int argc, char **argv)
   }
   else if (strstr(progname, "encrypt")) {
     if (opt_help || optind != argc - 1)
-      puts("Encrypt using a public key (seccure version " VERSION ").\n"
+      puts("Encrypt a message with a public key (seccure version" VERSION ").\n"
 	   "\n"
 	   "seccure-encrypt [-m maclen] [-c curve] [-i infile] [-o outfile] key");
     else
@@ -1142,7 +1201,7 @@ int main(int argc, char **argv)
   }
   else if (strstr(progname, "decrypt")) {
     if (opt_help || optind != argc)
-      puts("Decrypt using a secret key (seccure version " VERSION ").\n"
+      puts("Decrypt a message using a secret key (seccure version " VERSION ").\n"
 	   "\n"
 	   "seccure-decrypt [-m maclen] [-c curve] [-i infile] [-o outfile]\n"
 	   "                [-F pwfile] [-d]");
@@ -1160,7 +1219,7 @@ int main(int argc, char **argv)
   }
   else if (strstr(progname, "veridec")) {
     if (opt_help || optind != argc - 1)
-      puts("Decrypt a signcrypted message (seccure version " VERSION ").\n"
+      puts("Decrypt and verify a signcrypted message (seccure version " VERSION ").\n"
 	   "\n"
 	   "seccure-veridec [-c enc_curve [-c sig_curve]] [-i infile] [-o outfile]\n" 
 	   "                [-F pwfile] [-d] key");
@@ -1178,10 +1237,10 @@ int main(int argc, char **argv)
   }
   else if (strstr(progname, "verify")) {
     if (opt_help || (optind != argc - 2 && optind != argc - 1))
-      puts("Verify a signature (seccure version " VERSION ").\n"
+      puts("Verify the signature of a message (seccure version " VERSION ").\n"
 	   "\n"
-	   "seccure-verify [-f] [-b] [-a] [-c curve] [-s sigfile] [-i infile] [-o outfile]\n" 
-	   "               key [signature]");
+	   "seccure-verify [-f] [-b] [-a] [-c curve] [-s sigfile] [-i infile]\n" 
+	   "               [-o outfile] key [signature]");
     else
       res = app_verify(argv[optind], argv[optind + 1]);
   }
@@ -1195,13 +1254,14 @@ int main(int argc, char **argv)
   }
   else 
     fatal("Unknown command");
-
+  
   if (opt_infile)
     close(opt_fdin);
   if (opt_outfile)
     close(opt_fdout);
-  if (opt_pwfile || (! opt_infile && ! isatty(STDIN_FILENO)))
+  if (opt_fdpw != opt_fdin)
     close(opt_fdpw);
 
+  gcry_control(GCRYCTL_TERM_SECMEM, 1);
   exit(res);
 }

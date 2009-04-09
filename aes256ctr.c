@@ -1,5 +1,5 @@
 /*
- *  seccure  -  Copyright 2006 B. Poettering
+ *  seccure  -  Copyright 2009 B. Poettering
  *
  *  This program is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU General Public License as
@@ -27,13 +27,10 @@
  * elliptic curve cryptography (ECC). See the manpage or the project's  
  * homepage for further details.
  *
- * This code links against the GNU gcrypt library "libgcrypt" (which is
- * part of the GnuPG project). The code compiles successfully with 
- * libgcrypt 1.2.2. Use the included Makefile to build the binary.
+ * This code links against the GNU gcrypt library "libgcrypt" (which
+ * is part of the GnuPG project). Use the included Makefile to build
+ * the binary.
  * 
- * Compile with -D NOMEMLOCK if your machine doesn't support memory 
- * locking.
- *
  * Report bugs to: seccure AT point-at-infinity.org
  *
  */
@@ -51,10 +48,11 @@ struct aes256ctr* aes256ctr_init(const char *key)
   struct aes256ctr *ac;
   gcry_error_t err;
 
-  if (! (ac = malloc(sizeof(struct aes256ctr))))
+  if (! (ac = gcry_malloc_secure(sizeof(struct aes256ctr))))
     return NULL;
 
-  err = gcry_cipher_open(&ac->ch, GCRY_CIPHER_AES256, GCRY_CIPHER_MODE_CTR, 0);
+  err = gcry_cipher_open(&ac->ch, GCRY_CIPHER_AES256, 
+			 GCRY_CIPHER_MODE_CTR, GCRY_CIPHER_SECURE);
   if (gcry_err_code(err))
     goto error;
   
@@ -70,7 +68,7 @@ struct aes256ctr* aes256ctr_init(const char *key)
   return ac;
 
  error:
-  free(ac);
+  gcry_free(ac);
   return NULL;
 }
 
@@ -103,17 +101,24 @@ void aes256ctr_done(struct aes256ctr *ac)
 {
   gcry_cipher_close(ac->ch);
   memset(ac->buf, 0, CIPHER_BLOCK_SIZE);
-  free(ac);
+  gcry_free(ac);
 }
 
-int hmacsha256_init(gcry_md_hd_t *mh, const char *key)
+int hmacsha256_init(gcry_md_hd_t *mh, const char *key, int len)
 {
   gcry_error_t err;
 
-  err = gcry_md_open(mh, GCRY_MD_SHA256, GCRY_MD_FLAG_HMAC);
+  err = gcry_md_open(mh, GCRY_MD_SHA256, 
+		     GCRY_MD_FLAG_HMAC | GCRY_MD_FLAG_SECURE);
   if (gcry_err_code(err))
     return 0;
   
-  err = gcry_md_setkey(*mh, key, HMAC_KEY_SIZE);
+  err = gcry_md_setkey(*mh, key, len);
   return ! gcry_err_code(err);
+}
+
+void aes256cprng_fillbuf(struct aes256cprng *cprng, char *buf, int len)
+{
+  memset(buf, 0, len);
+  aes256ctr_enc(cprng, buf, len);
 }

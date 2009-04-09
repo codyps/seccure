@@ -1,5 +1,5 @@
 /*
- *  seccure  -  Copyright 2006 B. Poettering
+ *  seccure  -  Copyright 2009 B. Poettering
  *
  *  This program is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU General Public License as
@@ -27,13 +27,10 @@
  * elliptic curve cryptography (ECC). See the manpage or the project's  
  * homepage for further details.
  *
- * This code links against the GNU gcrypt library "libgcrypt" (which is
- * part of the GnuPG project). The code compiles successfully with 
- * libgcrypt 1.2.2. Use the included Makefile to build the binary.
+ * This code links against the GNU gcrypt library "libgcrypt" (which
+ * is part of the GnuPG project). Use the included Makefile to build
+ * the binary.
  * 
- * Compile with -D NOMEMLOCK if your machine doesn't support memory 
- * locking.
- *
  * Report bugs to: seccure AT point-at-infinity.org
  *
  */
@@ -44,30 +41,14 @@
 
 /******************************************************************************/
 
-/* Even though this behaviour is not documented the gcry_mpi_rshift function 
-   seems to always interpret the N parameter as N % 32. Therefore an rshift by
-   32, 64 or 96 positions is practically a NOP. The following function + macro
-   is a quick hack to fix this problem.                                       */
-
-void my_gcry_mpi_rshift(gcry_mpi_t X, gcry_mpi_t A, unsigned int N)
-{
-  gcry_mpi_set(X, A);
-  while(N--)
-    gcry_mpi_rshift(X, X, 1);
-}
-
-#define gcry_mpi_rshift(X, A, N) my_gcry_mpi_rshift(X, A, N)
-
-/******************************************************************************/
-
 /* Fact 2.146(i) in the "Handbook of Applied Cryptography"                    */
 int mod_issquare(const gcry_mpi_t a, const gcry_mpi_t p) 
 {
   if (gcry_mpi_cmp_ui(a, 0)) {
     gcry_mpi_t p1, p2;
     int res;
-    p1 = gcry_mpi_new(0);
-    p2 = gcry_mpi_new(0);
+    p1 = gcry_mpi_snew(0);
+    p2 = gcry_mpi_snew(0);
     gcry_mpi_rshift(p1, p, 1);
     gcry_mpi_powm(p2, a, p1, p);
     res = ! gcry_mpi_cmp_ui(p2, 1);
@@ -90,23 +71,23 @@ int mod_root(gcry_mpi_t x, const gcry_mpi_t a, const gcry_mpi_t p)
   }
   if (! mod_issquare(a, p))
     return 0;
-  h = gcry_mpi_new(0);
-  n = gcry_mpi_new(0);
+  h = gcry_mpi_snew(0);
+  n = gcry_mpi_snew(0);
   gcry_mpi_set_ui(n, 2);
   while (mod_issquare(n, p))
     gcry_mpi_add_ui(n, n, 1);
-  q = gcry_mpi_new(0);
+  q = gcry_mpi_snew(0);
   gcry_mpi_sub_ui(q, p, 1);
   for(r = 0; ! gcry_mpi_test_bit(q, r); r++);
   gcry_mpi_rshift(q, q, r);
-  y = gcry_mpi_new(0);
+  y = gcry_mpi_snew(0);
   gcry_mpi_powm(y, n, q, p);
-  b = gcry_mpi_new(0);
+  b = gcry_mpi_snew(0);
   gcry_mpi_rshift(h, q, 1);
   gcry_mpi_powm(b, a, h, p);
   gcry_mpi_mulm(x, a, b, p);
   gcry_mpi_mulm(b, b, x, p);
-  t = gcry_mpi_new(0);
+  t = gcry_mpi_snew(0);
   while (gcry_mpi_cmp_ui(b, 1)) {
     gcry_mpi_mulm(h, b, b, p);
     for(m = 1; gcry_mpi_cmp_ui(h, 1); m++)

@@ -1,5 +1,5 @@
 /*
- *  seccure  -  Copyright 2006 B. Poettering
+ *  seccure  -  Copyright 2009 B. Poettering
  *
  *  This program is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU General Public License as
@@ -27,13 +27,10 @@
  * elliptic curve cryptography (ECC). See the manpage or the project's  
  * homepage for further details.
  *
- * This code links against the GNU gcrypt library "libgcrypt" (which is
- * part of the GnuPG project). The code compiles successfully with 
- * libgcrypt 1.2.2. Use the included Makefile to build the binary.
+ * This code links against the GNU gcrypt library "libgcrypt" (which
+ * is part of the GnuPG project). Use the included Makefile to build
+ * the binary.
  * 
- * Compile with -D NOMEMLOCK if your machine doesn't support memory 
- * locking.
- *
  * Report bugs to: seccure AT point-at-infinity.org
  *
  */
@@ -51,8 +48,8 @@
 struct affine_point point_new(void)
 {
   struct affine_point r;
-  r.x = gcry_mpi_new(0);
-  r.y = gcry_mpi_new(0);
+  r.x = gcry_mpi_snew(0);
+  r.y = gcry_mpi_snew(0);
   return r;
 }
 
@@ -84,12 +81,11 @@ int point_on_curve(const struct affine_point *p, const struct domain_params *dp)
   int res;
   if (! (res = point_is_zero(p))) {
     gcry_mpi_t h1, h2;
-    h1 = gcry_mpi_new(0);
-    h2 = gcry_mpi_new(0);
+    h1 = gcry_mpi_snew(0);
+    h2 = gcry_mpi_snew(0);
     gcry_mpi_mulm(h1, p->x, p->x, dp->m);
+    gcry_mpi_addm(h1, h1, dp->a, dp->m);
     gcry_mpi_mulm(h1, h1, p->x, dp->m);
-    gcry_mpi_mulm(h2, dp->a, p->x, dp->m);
-    gcry_mpi_addm(h1, h2, h1, dp->m);
     gcry_mpi_addm(h1, h1, dp->b, dp->m);
     gcry_mpi_mulm(h2, p->y, p->y, dp->m);
     res = ! gcry_mpi_cmp(h1, h2);
@@ -107,25 +103,27 @@ int point_compress(const struct affine_point *p)
 int point_decompress(struct affine_point *p, const gcry_mpi_t x, int yflag, 
 		     const struct domain_params *dp)
 {
-  gcry_mpi_t h1, h2;
+  gcry_mpi_t h, y;
   int res;
-  h1 = gcry_mpi_new(0);
-  h2 = gcry_mpi_new(0);
-  gcry_mpi_mulm(h1, x, x, dp->m);
-  gcry_mpi_mulm(h1, h1, x, dp->m);
-  gcry_mpi_mulm(h2, dp->a, x, dp->m);
-  gcry_mpi_addm(h1, h1, h2, dp->m);
-  gcry_mpi_addm(h1, h1, dp->b, dp->m);
-  if ((res = mod_root(h2, h1, dp->m)))
-    if ((res = (gcry_mpi_cmp_ui(h2, 0) || ! yflag))) {
-      if (yflag != gcry_mpi_test_bit(h2, 0))
-	gcry_mpi_sub(h2, dp->m, h2);
-      p->x = gcry_mpi_copy(x);
-      p->y = gcry_mpi_copy(h2);
+  h = gcry_mpi_snew(0);
+  y = gcry_mpi_snew(0);
+  gcry_mpi_mulm(h, x, x, dp->m);
+  gcry_mpi_addm(h, h, dp->a, dp->m);
+  gcry_mpi_mulm(h, h, x, dp->m);
+  gcry_mpi_addm(h, h, dp->b, dp->m);
+  if ((res = mod_root(y, h, dp->m)))
+    if ((res = (gcry_mpi_cmp_ui(y, 0) || ! yflag))) {
+      p->x = gcry_mpi_snew(0);
+      p->y = gcry_mpi_snew(0);
+      gcry_mpi_set(p->x, x);
+      if (gcry_mpi_test_bit(y, 0) == yflag)
+	gcry_mpi_set(p->y, y);
+      else
+	gcry_mpi_sub(p->y, dp->m, y);
       assert(point_on_curve(p, dp));
     }
-  gcry_mpi_release(h1);
-  gcry_mpi_release(h2);
+  gcry_mpi_release(h);
+  gcry_mpi_release(y);
   return res;
 }
 
@@ -133,8 +131,8 @@ void point_double(struct affine_point *p, const struct domain_params *dp)
 {
   if (gcry_mpi_cmp_ui(p->y, 0)) {
     gcry_mpi_t t1, t2;
-    t1 = gcry_mpi_new(0);
-    t2 = gcry_mpi_new(0);
+    t1 = gcry_mpi_snew(0);
+    t2 = gcry_mpi_snew(0);
     gcry_mpi_mulm(t2, p->x, p->x, dp->m);
     gcry_mpi_addm(t1, t2, t2, dp->m);
     gcry_mpi_addm(t1, t1, t2, dp->m);
@@ -169,7 +167,7 @@ void point_add(struct affine_point *p1, const struct affine_point *p2,
       }
       else {
 	gcry_mpi_t t;
-	t = gcry_mpi_new(0);
+	t = gcry_mpi_snew(0);
 	gcry_mpi_subm(t, p1->y, p2->y, dp->m);
 	gcry_mpi_subm(p1->y, p1->x, p2->x, dp->m);
 	gcry_mpi_invm(p1->y, p1->y, dp->m);
@@ -195,9 +193,9 @@ void point_add(struct affine_point *p1, const struct affine_point *p2,
 struct jacobian_point jacobian_new(void)
 {
   struct jacobian_point r;
-  r.x = gcry_mpi_new(0);
-  r.y = gcry_mpi_new(0);
-  r.z = gcry_mpi_new(0);
+  r.x = gcry_mpi_snew(0);
+  r.y = gcry_mpi_snew(0);
+  r.z = gcry_mpi_snew(0);
   return r;
 }
 
@@ -235,8 +233,8 @@ void jacobian_double(struct jacobian_point *p, const struct domain_params *dp)
   if (gcry_mpi_cmp_ui(p->z, 0)) {
     if (gcry_mpi_cmp_ui(p->y, 0)) {
       gcry_mpi_t t1, t2;
-      t1 = gcry_mpi_new(0);
-      t2 = gcry_mpi_new(0);
+      t1 = gcry_mpi_snew(0);
+      t2 = gcry_mpi_snew(0);
       gcry_mpi_mulm(t1, p->x, p->x, dp->m);
       gcry_mpi_addm(t2, t1, t1, dp->m);
       gcry_mpi_addm(t2, t2, t1, dp->m);
@@ -273,8 +271,8 @@ void jacobian_affine_point_add(struct jacobian_point *p1,
   if (! point_is_zero(p2)) {
     if (gcry_mpi_cmp_ui(p1->z, 0)) {
       gcry_mpi_t t1, t2, t3;
-      t1 = gcry_mpi_new(0);
-      t2 = gcry_mpi_new(0);
+      t1 = gcry_mpi_snew(0);
+      t2 = gcry_mpi_snew(0);
       gcry_mpi_mulm(t1, p1->z, p1->z, dp->m);
       gcry_mpi_mulm(t2, t1, p2->x, dp->m);
       gcry_mpi_mulm(t1, t1, p1->z, dp->m);
@@ -286,7 +284,7 @@ void jacobian_affine_point_add(struct jacobian_point *p1,
 	  jacobian_load_zero(p1);
       }
       else {
-	t3 = gcry_mpi_new(0);
+	t3 = gcry_mpi_snew(0);
 	gcry_mpi_subm(p1->x, p1->x, t2, dp->m);
 	gcry_mpi_subm(p1->y, p1->y, t1, dp->m);
 	gcry_mpi_mulm(p1->z, p1->z, p1->x, dp->m);
@@ -317,7 +315,7 @@ struct affine_point jacobian_to_affine(const struct jacobian_point *p,
   struct affine_point r = point_new();
   if (gcry_mpi_cmp_ui(p->z, 0)) {
     gcry_mpi_t h;
-    h = gcry_mpi_new(0);
+    h = gcry_mpi_snew(0);
     gcry_mpi_invm(h, p->z, dp->m);
     gcry_mpi_mulm(r.y, h, h, dp->m);
     gcry_mpi_mulm(r.x, p->x, r.y, dp->m);

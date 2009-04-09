@@ -1,5 +1,5 @@
 /*
- *  seccure  -  Copyright 2006 B. Poettering
+ *  seccure  -  Copyright 2009 B. Poettering
  *
  *  This program is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU General Public License as
@@ -27,13 +27,10 @@
  * elliptic curve cryptography (ECC). See the manpage or the project's  
  * homepage for further details.
  *
- * This code links against the GNU gcrypt library "libgcrypt" (which is
- * part of the GnuPG project). The code compiles successfully with 
- * libgcrypt 1.2.2. Use the included Makefile to build the binary.
+ * This code links against the GNU gcrypt library "libgcrypt" (which
+ * is part of the GnuPG project). Use the included Makefile to build
+ * the binary.
  * 
- * Compile with -D NOMEMLOCK if your machine doesn't support memory 
- * locking.
- *
  * Report bugs to: seccure AT point-at-infinity.org
  *
  */
@@ -41,6 +38,7 @@
 #include <gcrypt.h>
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "curves.h"
 #include "ecc.h"
@@ -132,7 +130,10 @@ static const struct curve curves[CURVE_NUM] = {
 
 /******************************************************************************/
 
-#define SCAN(x,s) assert(! gcry_mpi_scan(x, GCRYMPI_FMT_HEX, s, 0, NULL))
+#define SCAN(x, s) do {                                            \
+    assert(! gcry_mpi_scan(x, GCRYMPI_FMT_HEX, s, 0, NULL));       \
+    gcry_mpi_set_flag(*x, GCRYMPI_FLAG_SECURE);		           \
+  } while(0)
 
 static struct curve_params* load_curve(const struct curve *c)
 {
@@ -169,20 +170,44 @@ static struct curve_params* load_curve(const struct curve *c)
   cp->dh_len_bin = (gcry_mpi_get_nbits(dp->order) / 2 + 7) / 8;
   if (cp->dh_len_bin > 32)
     cp->dh_len_bin = 32;
-  gcry_mpi_set_ui(h, 1);            /* gcry_mpi_set_bit doesn't work properly */
-  gcry_mpi_mul_2exp(h, h, 8 * cp->dh_len_bin);          /* in libgcrypt-1.2.2 */
+
+  gcry_mpi_set_ui(h, 0);
+  gcry_mpi_set_bit(h, 8 * cp->dh_len_bin);
   gcry_mpi_sub_ui(h, h, 1);
   cp->dh_len_compact = get_serialization_len(h, DF_COMPACT);
 
   cp->elem_len_bin = get_serialization_len(dp->m, DF_BIN);
+  cp->order_len_bin = get_serialization_len(dp->order, DF_BIN);
 
-#if 0
-  if (cp->pk_len_compact != c->pk_len_compact)
-    fprintf(stderr, "FATAL: c->pk_len_compact != %d!\n", cp->pk_len_compact);
-  assert(point_on_curve(&dp->base, dp));
+#if 0   /* enable this when adding a new curve to do some sanity checks */
+  if (! gcry_mpi_cmp_ui(dp->b, 0)) {
+    fprintf(stderr, "FATAL: b == 0\n");
+    exit(1);
+  }
+  if (cp->pk_len_compact != c->pk_len_compact) {
+    fprintf(stderr, "FATAL: c->pk_len_compact != %d\n", cp->pk_len_compact);
+    exit(1);
+  }
+  if (! point_on_curve(&dp->base, dp)) {
+    fprintf(stderr, "FATAL: base point not on curve!\n");
+    exit(1);
+  }
   struct affine_point p = pointmul(&dp->base, dp->order, dp);
-  assert(point_is_zero(&p));
+  if (! point_is_zero(&p)) {
+    fprintf(stderr, "FATAL: wrong point order!\n");
+    exit(1);
+  }
   point_release(&p);
+
+  gcry_mpi_mul_ui(h, dp->order, dp->cofactor);
+  gcry_mpi_sub(h, h, dp->m);
+  gcry_mpi_sub_ui(h, h, 1);
+  gcry_mpi_mul(h, h, h);
+  gcry_mpi_rshift(h, h, 2);
+  if (gcry_mpi_cmp(h, dp->m) > 0) {
+    fprintf(stderr, "FATAL: invalid cofactor!\n");
+    exit(1);
+  }
 #endif
 
   gcry_mpi_release(h);
@@ -218,4 +243,5 @@ void curve_release(struct curve_params *cp)
   gcry_mpi_release(dp->order);
   gcry_mpi_release(dp->base.x);
   gcry_mpi_release(dp->base.y);
+  free(cp);
 }
