@@ -13,7 +13,7 @@ install: default
 	mkdir -p $(DESTDIR)/usr/bin
 	install -m0755 seccure-key $(DESTDIR)/usr/bin
 	$(foreach sym,$(BIN_SYM),\
-		ln -f $(DESTDIR)/usr/bin/$(BIN) $(DESTDIR)/usr/bin/$(sym))
+		ln -f $(DESTDIR)/usr/bin/$(BIN) $(DESTDIR)/usr/bin/$(sym);)
 	mkdir -p $(DESTDIR)/usr/share/man/man1
 	install -m0644 seccure.1 $(DESTDIR)/usr/share/man/man1
 
