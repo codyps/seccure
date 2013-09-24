@@ -10,10 +10,12 @@ binaries: $(BIN) $(BIN_SYM)
 doc: seccure.1 seccure.1.html
 
 install: default
-	install -D -m0755 seccure-key $(DESTDIR)/usr/bin
+	mkdir -p $(DESTDIR)/usr/bin
+	install -m0755 seccure-key $(DESTDIR)/usr/bin
 	$(foreach sym,$(BIN_SYM),\
 		ln -f $(DESTDIR)/usr/bin/$(BIN) $(DESTDIR)/usr/bin/$(sym))
-	install -D -m0644 seccure.1 $(DESTDIR)/usr/share/man/man1
+	mkdir -p $(DESTDIR)/usr/share/man/man1
+	install -m0644 seccure.1 $(DESTDIR)/usr/share/man/man1
 
 clean:
 	rm -f *.o *~ $(BIN) $(BIN_SYM) # seccure.1 seccure.1.html
