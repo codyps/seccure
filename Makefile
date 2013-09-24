@@ -34,7 +34,6 @@ aes256ctr.o: aes256ctr.h
 
 $(BIN): seccure.o numtheory.o ecc.o serialize.o protocol.o curves.o aes256ctr.o
 	$(CC) $(CFLAGS) -o $@ -lgcrypt $^
-	strip $@
 
 $(BIN_SYM) : $(BIN)
 	ln -f $< $@
