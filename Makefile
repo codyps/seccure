@@ -36,8 +36,7 @@ aes256ctr.o: aes256ctr.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 seccure-key: seccure.o numtheory.o ecc.o serialize.o protocol.o curves.o aes256ctr.o
-	$(CC) $(CFLAGS) -o seccure-key -lgcrypt seccure.o numtheory.o ecc.o \
-	curves.o serialize.o protocol.o aes256ctr.o
+	$(CC) $(CFLAGS) -o seccure-key -lgcrypt $^
 	strip seccure-key
 
 seccure-encrypt: seccure-key
